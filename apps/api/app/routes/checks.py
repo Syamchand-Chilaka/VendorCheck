@@ -3,10 +3,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.deps import AuthContext, get_current_member
-from app.schemas.checks import CreateCheckResponse
-from app.services.checks import create_paste_text_check
+from app.schemas.checks import (
+    CheckDecisionRequest,
+    CheckDecisionResponse,
+    CheckDetailResponse,
+    CheckListResponse,
+    CreateCheckResponse,
+)
+from app.services.checks import create_paste_text_check, decide_check, get_check_detail, list_checks
 
 router = APIRouter()
+
+
+@router.get("/checks", response_model=CheckListResponse)
+async def get_checks(
+    auth: AuthContext = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+) -> CheckListResponse:
+    return await list_checks(auth, db)
+
+
+@router.get("/checks/{check_id}", response_model=CheckDetailResponse)
+async def get_check(
+    check_id: str,
+    auth: AuthContext = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+) -> CheckDetailResponse:
+    return await get_check_detail(check_id, auth, db)
 
 
 @router.post("/checks", response_model=CreateCheckResponse, status_code=201)
@@ -40,3 +63,13 @@ async def post_check(
         )
 
     return await create_paste_text_check(raw_text.strip(), auth, db)
+
+
+@router.post("/checks/{check_id}/decision", response_model=CheckDecisionResponse)
+async def post_check_decision(
+    check_id: str,
+    payload: CheckDecisionRequest,
+    auth: AuthContext = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+) -> CheckDecisionResponse:
+    return await decide_check(check_id, payload, auth, db)

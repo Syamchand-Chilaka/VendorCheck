@@ -1,8 +1,10 @@
-"""Placeholder Lambda handler for document upload events.
+"""Lambda handler for S3 document-upload events.
 
-This will be replaced with the real implementation in Phase 6.
+Starts a Step Functions execution for each uploaded document object using the
+tenant/vendor/document identifiers encoded in the S3 key.
 """
 
+import boto3
 import json
 import os
 import re
@@ -11,6 +13,7 @@ import re
 def lambda_handler(event, context):
     """Handle S3 ObjectCreated events for uploaded documents."""
     state_machine_arn = os.environ.get("STATE_MACHINE_ARN", "")
+    sfn = boto3.client("stepfunctions") if state_machine_arn else None
 
     results = []
     for record in event.get("Records", []):
@@ -32,20 +35,23 @@ def lambda_handler(event, context):
             "tenant_id": match.group("tenant_id"),
             "vendor_id": match.group("vendor_id"),
             "document_id": match.group("document_id"),
-            "document_version_id": match.group("version_no"),
+            "document_version_id": record["s3"]["object"].get("versionId", ""),
+            "version_no": match.group("version_no"),
             "bucket": bucket,
             "key": key,
             "correlation_id": context.aws_request_id if context else "local",
         }
 
-        results.append(payload)
-        print(f"Processed: {json.dumps(payload)}")
+        execution_arn = None
+        if sfn is not None:
+            response = sfn.start_execution(
+                stateMachineArn=state_machine_arn,
+                input=json.dumps(payload),
+                name=f"doc-{match.group('document_id')}-{match.group('version_no')}-{payload['correlation_id'][:8]}",
+            )
+            execution_arn = response.get("executionArn")
 
-        # TODO Phase 6: Start Step Functions execution
-        # sfn = boto3.client("stepfunctions")
-        # sfn.start_execution(
-        #     stateMachineArn=state_machine_arn,
-        #     input=json.dumps(payload),
-        # )
+        results.append({**payload, "execution_arn": execution_arn})
+        print(f"Processed: {json.dumps(results[-1])}")
 
     return {"statusCode": 200, "processed": len(results)}

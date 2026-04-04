@@ -61,10 +61,9 @@ module "rds" {
 }
 
 module "s3" {
-  source              = "../../modules/s3_documents"
-  project             = var.project
-  environment         = var.environment
-  lambda_function_arn = module.lambda.function_arn
+  source      = "../../modules/s3_documents"
+  project     = var.project
+  environment = var.environment
 }
 
 module "sns" {
@@ -99,6 +98,18 @@ module "lambda" {
   rds_database_url   = module.rds.database_url
   step_functions_arn = module.step_functions.state_machine_arn
   lambda_role_arn    = module.iam.lambda_role_arn
+}
+
+resource "aws_s3_bucket_notification" "documents_lambda_trigger" {
+  bucket = module.s3.bucket_id
+
+  lambda_function {
+    lambda_function_arn = module.lambda.function_arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "tenant/"
+  }
+
+  depends_on = [module.lambda]
 }
 
 # ── Outputs ───────────────────────────────────────────────

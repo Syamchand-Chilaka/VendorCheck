@@ -99,3 +99,50 @@ class TestCheckCreation:
         assert "severity" in signal
         assert "title" in signal
         assert "description" in signal
+
+    @pytest.mark.asyncio
+    async def test_list_and_detail(self, client: AsyncClient):
+        create_resp = await client.post(
+            "/api/v1/checks",
+            data={"input_type": "paste_text", "raw_text": "Test Vendor\nSome details here."},
+            headers={"X-Tenant-Id": "test-tenant-id"},
+        )
+        check_id = create_resp.json()["id"]
+
+        list_resp = await client.get(
+            "/api/v1/checks",
+            headers={"X-Tenant-Id": "test-tenant-id"},
+        )
+        assert list_resp.status_code == 200
+        assert len(list_resp.json()["items"]) == 1
+
+        detail_resp = await client.get(
+            f"/api/v1/checks/{check_id}",
+            headers={"X-Tenant-Id": "test-tenant-id"},
+        )
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["id"] == check_id
+
+    @pytest.mark.asyncio
+    async def test_decision_recorded_once(self, client: AsyncClient):
+        create_resp = await client.post(
+            "/api/v1/checks",
+            data={"input_type": "paste_text", "raw_text": "Test Vendor\nSome details here."},
+            headers={"X-Tenant-Id": "test-tenant-id"},
+        )
+        check_id = create_resp.json()["id"]
+
+        decision_resp = await client.post(
+            f"/api/v1/checks/{check_id}/decision",
+            json={"decision": "approved", "note": "Looks valid"},
+            headers={"X-Tenant-Id": "test-tenant-id"},
+        )
+        assert decision_resp.status_code == 200
+        assert decision_resp.json()["decision"] == "approved"
+
+        second_resp = await client.post(
+            f"/api/v1/checks/{check_id}/decision",
+            json={"decision": "held"},
+            headers={"X-Tenant-Id": "test-tenant-id"},
+        )
+        assert second_resp.status_code == 409

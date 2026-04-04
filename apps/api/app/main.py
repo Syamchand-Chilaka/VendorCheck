@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.errors import unhandled_exception_handler
-from app.routes import checks, me
+from app.routes import checks, documents, me, metrics, reviews, vendors
 
 
 @asynccontextmanager
@@ -36,6 +36,10 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 # Routes
 app.include_router(me.router, prefix="/api/v1")
 app.include_router(checks.router, prefix="/api/v1")
+app.include_router(vendors.router, prefix="/api/v1")
+app.include_router(documents.router, prefix="/api/v1")
+app.include_router(reviews.router, prefix="/api/v1")
+app.include_router(metrics.router, prefix="/api/v1")
 
 
 @app.get("/health")

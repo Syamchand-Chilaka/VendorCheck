@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -164,6 +165,61 @@ class DocumentVersion(Base):
     document: Mapped["Document"] = relationship(back_populates="versions")
 
 
+class DocumentArtifact(Base):
+    __tablename__ = "document_artifacts"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_version_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "document_versions.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "tenants.id", ondelete="CASCADE"), nullable=False)
+    artifact_type: Mapped[str] = mapped_column(Text, nullable=False)
+    s3_bucket: Mapped[str | None] = mapped_column(Text)
+    s3_key: Mapped[str | None] = mapped_column(Text)
+    content_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExtractedField(Base):
+    __tablename__ = "extracted_fields"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_version_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "document_versions.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "tenants.id", ondelete="CASCADE"), nullable=False)
+    field_name: Mapped[str] = mapped_column(Text, nullable=False)
+    field_value: Mapped[str | None] = mapped_column(Text)
+    field_value_hash: Mapped[str | None] = mapped_column(Text)
+    field_value_masked: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ValidationResult(Base):
+    __tablename__ = "validation_results"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_version_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "document_versions.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "tenants.id", ondelete="CASCADE"), nullable=False)
+    validator_type: Mapped[str] = mapped_column(Text, nullable=False)
+    verdict: Mapped[str | None] = mapped_column(Text)
+    risk_score: Mapped[int | None] = mapped_column(Integer)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    explanation: Mapped[str | None] = mapped_column(Text)
+    recommended_action: Mapped[str | None] = mapped_column(Text)
+    raw_response: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow)
+
+
 class CheckRequest(Base):
     __tablename__ = "check_requests"
 
@@ -294,3 +350,39 @@ class MetricEvent(Base):
     metadata_: Mapped[str | None] = mapped_column("metadata", Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow)
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "tenants.id", ondelete="CASCADE"), nullable=False)
+    alert_type: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("documents.id", ondelete="SET NULL"))
+    review_task_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("review_tasks.id", ondelete="SET NULL"))
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow)
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "tenants.id", ondelete="CASCADE"), nullable=False)
+    document_version_id: Mapped[str] = mapped_column(Text, ForeignKey(
+        "document_versions.id", ondelete="CASCADE"), nullable=False)
+    sfn_execution_arn: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="running")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    correlation_id: Mapped[str | None] = mapped_column(Text)

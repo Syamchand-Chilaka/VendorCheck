@@ -16,6 +16,9 @@ Terraform modules for the VendorCheck AWS infrastructure.
 | `step_functions` | Step Functions state machine for doc processing |
 | `iam` | IAM roles and policies for Lambda + Step Functions |
 
+Bucket notifications are declared at the environment layer instead of inside the
+S3 module to avoid a Terraform dependency cycle between the S3 and Lambda modules.
+
 ## Dev Environment Setup
 
 ### Prerequisites

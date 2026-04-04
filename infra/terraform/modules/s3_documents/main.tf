@@ -51,26 +51,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "documents" {
     id     = "abort-incomplete-uploads"
     status = "Enabled"
 
+    filter {}
+
     abort_incomplete_multipart_upload {
       days_after_initiation = 1
     }
   }
-}
-
-# Event notification for Lambda (configured in lambda module via ARN)
-resource "aws_s3_bucket_notification" "lambda_trigger" {
-  count  = var.lambda_function_arn != "" ? 1 : 0
-  bucket = aws_s3_bucket.documents.id
-
-  lambda_function {
-    lambda_function_arn = var.lambda_function_arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "tenant/"
-  }
-}
-
-variable "lambda_function_arn" {
-  type        = string
-  default     = ""
-  description = "Lambda function ARN for S3 event notifications. Empty to skip."
 }
