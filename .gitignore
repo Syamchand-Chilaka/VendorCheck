@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .env.*
+!.env.example
 node_modules/
 .next/
 dist/
@@ -8,3 +9,4 @@ build/
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
