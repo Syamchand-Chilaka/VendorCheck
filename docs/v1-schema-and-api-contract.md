@@ -1,7 +1,7 @@
 # VendorCheck v1 — Database Schema & API Contract
 
 **Status:** Final specification — pre-implementation  
-**Date:** 2026-04-04  
+**Date:** 2026-04-04 (revised 2026-04-04)  
 **Author:** Backend architecture pass  
 
 ---
@@ -35,10 +35,10 @@
 | # | Assumption | Rationale |
 |---|-----------|-----------|
 | A1 | One workspace per user in v1. A user cannot belong to multiple workspaces simultaneously. | Simplifies auth context, query scoping, and onboarding. Multi-workspace is a v2+ concern. |
-| A2 | Workspace is auto-created during onboarding (POST /workspaces), not pre-provisioned. | Solo founder flow: sign up → create workspace → start checking vendors. |
-| A3 | Member addition requires the invitee to already have a Supabase Auth account. No pending-invite system in v1. | Avoids an invites table. Admin shares the signup URL, then adds the person by email. Acceptable for 1+2 user beta. |
+| A2 | Workspace is auto-created when the user first calls `GET /api/v1/me` after email verification. No separate workspace-creation endpoint in v1. | Removes an unnecessary API round-trip and removes POST /workspaces from launch scope. Default workspace name derived from the user's display name. The workspace entry and admin membership are created atomically on first `/me` call. |
+| A3 | Member addition requires the invitee to already have a Supabase Auth account. No pending-invite system in v1. `workspace_invites` table is deferred. Admin shares the signup URL, then adds the person by email via `POST /workspaces/{id}/members`. | Avoids an invites table. Acceptable for a 1+2 user beta. |
 | A4 | Check processing (extraction + AI analysis) is synchronous within the POST /checks request. | With ≤3 users and no concurrent load, a 5–10 second synchronous response is acceptable. Avoids polling/realtime complexity. A loading spinner on the frontend covers the wait. |
-| A5 | A single decision per check request replaces any previous decision. No append-only decision log in v1. | Decision audit trail is a v2 table. v1 stores the current decision state. |
+| A5 | Decisions are **immutable** once submitted. A check can only receive one decision. Attempting to re-decide returns 409. | Eliminates the need for a decision audit log table in v1. Avoids mutable-decision edge cases. If circumstances change, the user submits a new check. |
 | A6 | Vendor identity is derived from `check_requests.vendor_name`, not a separate vendors table. | The inbox already groups by vendor name. A dedicated vendors table adds joins and CRUD without delivering v1 value. Deferred. |
 | A7 | PDF text extraction uses a local Python library (e.g., pdfplumber), not an external OCR service. | Digitally generated PDFs have embedded text. No OCR needed. Keeps cost at zero for extraction. |
 | A8 | The FastAPI backend connects to Supabase using the **service role key** (bypasses RLS). Authorization is enforced in application code. | Gives the backend full control. RLS can be layered in later as defense-in-depth. |
@@ -100,10 +100,10 @@
 
 | Table | Why Deferred | When to Add |
 |-------|-------------|-------------|
-| `vendors` | Vendor identity can be derived from `check_requests.vendor_name` for v1. A dedicated table adds CRUD surface without delivering v1 value. | When vendor profile pages, vendor-level settings, or cross-workspace vendor data are needed. |
-| `workspace_invites` | v1 requires the invitee to already have an account. With 1+2 users, sharing a signup link is acceptable. | When self-serve invite flows or invite-by-email-before-signup are needed. |
-| `decision_audit_log` | v1 stores current decision state. An append-only log adds write volume without user-facing value in beta. | When compliance, audit trail, or decision history features are scoped. |
-| `check_request_comparisons` | v1 derives comparisons at analysis time. Persisting them as rows adds schema complexity. | When comparison history or cross-check linking is a product feature. |
+| `vendors` | Vendor identity is derived from `check_requests.vendor_name`. A dedicated table adds joins and CRUD without v1 value. | When vendor profile pages, vendor-level settings, or cross-workspace vendor records are needed. |
+| `workspace_invites` | No pending-invite flow in v1. Invitee must sign up first; admin then adds by email. | When self-serve invite flows (email-before-signup) are required. |
+| `decision_audit_log` | Decisions are immutable in v1 — no audit log is needed. A single decision per check is stored on the check row. | When mutable decisions or compliance-level audit trails are scoped. |
+| `check_request_comparisons` | Comparison is derived at analysis time from `prior_check_id`. Storing rows adds schema complexity without v1 value. | When comparison history or cross-check linking is a product feature. |
 
 ---
 
@@ -389,11 +389,8 @@ Authorization is enforced in FastAPI application code. The backend uses the Supa
 
 | Action | Admin | Reviewer | Member |
 |--------|-------|----------|--------|
-| Create workspace | ✓ (once) | — | — |
-| View workspace | ✓ | ✓ | ✓ |
-| Add member | ✓ | — | — |
-| Remove member | ✓ | — | — |
-| Change member role | ✓ | — | — |
+| View workspace + member list | ✓ | ✓ | ✓ |
+| Add member (by email) | ✓ | — | — |
 | Submit check | ✓ | ✓ | ✓ |
 | View check list (inbox) | ✓ | ✓ | ✓ |
 | View check detail | ✓ | ✓ | ✓ |
@@ -402,7 +399,10 @@ Authorization is enforced in FastAPI application code. The backend uses the Supa
 | Reject check | ✓ | ✓ | ✓ |
 | Download source file | ✓ | ✓ | ✓ |
 
-> **Design choice:** Members can Hold and Reject but cannot Approve. This allows junior staff to flag problems without authorizing payments. Only Reviewers and Admins can Approve.
+> **Design choices:**
+> - Workspace is auto-created at signup — no UI action needed to create it.
+> - Member removal and role changes are deferred. For the 1+2 user beta, these are handled directly via the Supabase dashboard.
+> - Members can Hold and Reject but cannot Approve. Only Reviewers and Admins can Approve, restricting payment authorization to trusted roles.
 
 ---
 
@@ -425,19 +425,18 @@ Authorization is enforced in FastAPI application code. The backend uses the Supa
 
 | # | Method | Path | Purpose |
 |---|--------|------|---------|
-| 1 | `GET` | `/api/v1/me` | Get current user profile + workspace context |
-| 2 | `POST` | `/api/v1/workspaces` | Create workspace (onboarding) |
-| 3 | `GET` | `/api/v1/workspaces/{workspace_id}/members` | List workspace members |
-| 4 | `POST` | `/api/v1/workspaces/{workspace_id}/members` | Add member to workspace |
-| 5 | `DELETE` | `/api/v1/workspaces/{workspace_id}/members/{user_id}` | Remove member from workspace |
-| 6 | `PATCH` | `/api/v1/workspaces/{workspace_id}/members/{user_id}` | Change member role |
-| 7 | `POST` | `/api/v1/checks` | Submit a new check |
-| 8 | `GET` | `/api/v1/checks` | List checks (inbox) |
-| 9 | `GET` | `/api/v1/checks/{check_id}` | Get check detail with signals |
-| 10 | `POST` | `/api/v1/checks/{check_id}/decision` | Log or update a decision |
-| 11 | `GET` | `/api/v1/checks/{check_id}/file` | Get signed download URL for source PDF |
+| 1 | `GET` | `/api/v1/me` | Get current user profile + workspace context. Auto-creates workspace on first call. |
+| 2 | `GET` | `/api/v1/workspaces/{workspace_id}/members` | List workspace members |
+| 3 | `POST` | `/api/v1/workspaces/{workspace_id}/members` | Add a member by email (admin only) |
+| 4 | `POST` | `/api/v1/checks` | Submit a new check |
+| 5 | `GET` | `/api/v1/checks` | List checks (inbox) |
+| 6 | `GET` | `/api/v1/checks/{check_id}` | Get check detail with signals |
+| 7 | `POST` | `/api/v1/checks/{check_id}/decision` | Log a decision (immutable) |
+| 8 | `GET` | `/api/v1/checks/{check_id}/file` | Get signed download URL for source PDF |
 
-**Total: 11 endpoints.**
+**Total: 8 endpoints.**
+
+**Deferred to v2:** `POST /workspaces` (not needed — auto-create), `DELETE /workspaces/{id}/members/{uid}` (admin manages via Supabase dashboard), `PATCH /workspaces/{id}/members/{uid}` (role changes via Supabase dashboard).
 
 ---
 
@@ -445,7 +444,7 @@ Authorization is enforced in FastAPI application code. The backend uses the Supa
 
 ### 12.1 `GET /api/v1/me`
 
-**Purpose:** Returns authenticated user's profile and workspace context. Called on every app load.  
+**Purpose:** Returns authenticated user's profile and workspace context. On first call for a newly verified user, auto-creates their workspace and admin membership atomically.  
 **Auth required?** Yes.
 
 **Request body:** None.
@@ -461,70 +460,25 @@ Authorization is enforced in FastAPI application code. The backend uses the Supa
   },
   "workspace": {
     "id": "uuid",
-    "name": "Acme Property Management",
+    "name": "Jane Smith's Workspace",
     "role": "admin"
   }
-}
-```
-
-If the user has no workspace yet (pre-onboarding):
-```json
-{
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "display_name": "Jane Smith",
-    "email_verified": true
-  },
-  "workspace": null
 }
 ```
 
 **Success status code:** `200 OK`  
 **Error status codes:**
 - `401 Unauthorized` — Invalid or missing JWT.
-- `403 Forbidden` — JWT valid but email not verified.
+- `403 Forbidden` — JWT valid but email not verified. User must complete email verification before entering the app.
 
-**Notes for v1 simplification:** The `email` and `email_verified` fields are read from Supabase Auth via the service role API, not from the profiles table.
-
----
-
-### 12.2 `POST /api/v1/workspaces`
-
-**Purpose:** Create a new workspace. Called once during onboarding.  
-**Auth required?** Yes.
-
-**Request body:**
-```json
-{
-  "name": "Acme Property Management"
-}
-```
-
-**Validation:**
-- `name`: required, string, 1–100 characters, trimmed.
-
-**Response body (201):**
-```json
-{
-  "id": "uuid",
-  "name": "Acme Property Management",
-  "created_at": "2026-04-04T12:00:00Z",
-  "role": "admin"
-}
-```
-
-**Success status code:** `201 Created`  
-**Error status codes:**
-- `401 Unauthorized` — Invalid JWT.
-- `409 Conflict` — User already belongs to a workspace.
-- `422 Unprocessable Entity` — Validation error (missing name, too long).
-
-**Notes for v1 simplification:** Creating a workspace also creates a `workspace_members` row with role=`admin` for the requesting user, in a single transaction.
+**Notes for v1 simplification:**
+- `email` and `email_verified` are read from Supabase Auth via the service role API, not from the profiles table.
+- Auto-create logic: if no `workspace_members` row exists for this user, the backend creates a `workspaces` row (name = `"{display_name}'s Workspace"`) and a `workspace_members` row (role = `admin`) in a single transaction, then returns the result.
+- `workspace` is never `null` in a successful 200 response. A verified user always has a workspace after the first `/me` call.
 
 ---
 
-### 12.3 `GET /api/v1/workspaces/{workspace_id}/members`
+### 12.2 `GET /api/v1/workspaces/{workspace_id}/members`
 
 **Purpose:** List all members of the workspace.  
 **Auth required?** Yes.
@@ -562,7 +516,7 @@ If the user has no workspace yet (pre-onboarding):
 
 ---
 
-### 12.4 `POST /api/v1/workspaces/{workspace_id}/members`
+### 12.3 `POST /api/v1/workspaces/{workspace_id}/members`
 
 **Purpose:** Add a member to the workspace by email.  
 **Auth required?** Yes. **Role required:** `admin`.
@@ -599,62 +553,11 @@ If the user has no workspace yet (pre-onboarding):
 - `422 Unprocessable Entity` — Validation error.
 - `429 Too Many Requests` — Workspace already has 3 members (beta limit).
 
-**Notes for v1 simplification:** The backend uses `supabase.auth.admin.list_users()` filtered by email to find the user. If the user belongs to another workspace, the backend returns 409 (v1 enforces single-workspace per user). The 3-member cap is hardcoded.
+**Notes for v1 simplification:** The backend uses `supabase.auth.admin.list_users()` filtered by email to find the user. If the user belongs to another workspace, the backend returns 409 (v1 enforces single-workspace per user). The 3-member cap is hardcoded. Member removal and role changes are handled via the Supabase dashboard for the beta period.
 
 ---
 
-### 12.5 `DELETE /api/v1/workspaces/{workspace_id}/members/{user_id}`
-
-**Purpose:** Remove a member from the workspace.  
-**Auth required?** Yes. **Role required:** `admin`.
-
-**Request body:** None.
-
-**Response body:** None.
-
-**Success status code:** `204 No Content`  
-**Error status codes:**
-- `401 Unauthorized`
-- `403 Forbidden` — Caller is not admin, OR trying to remove themselves (admin cannot self-remove).
-- `404 Not Found` — Target user is not a member of this workspace.
-
-**Notes for v1 simplification:** Admin cannot remove themselves. To transfer ownership / dissolve the workspace is out of v1 scope.
-
----
-
-### 12.6 `PATCH /api/v1/workspaces/{workspace_id}/members/{user_id}`
-
-**Purpose:** Change a member's role.  
-**Auth required?** Yes. **Role required:** `admin`.
-
-**Request body:**
-```json
-{
-  "role": "member"
-}
-```
-
-**Validation:**
-- `role`: required, one of `reviewer`, `member`. Cannot set to `admin`.
-
-**Response body (200):**
-```json
-{
-  "user_id": "uuid",
-  "role": "member"
-}
-```
-
-**Success status code:** `200 OK`  
-**Error status codes:**
-- `401 Unauthorized`
-- `403 Forbidden` — Caller is not admin, OR trying to change own role.
-- `404 Not Found` — Target is not a member.
-- `422 Unprocessable Entity` — Invalid role value.
-
----
-
-### 12.7 `POST /api/v1/checks`
+### 12.4 `POST /api/v1/checks`
 
 **Purpose:** Submit a new vendor verification check. This is the core endpoint.  
 **Auth required?** Yes. **Role required:** Any role (`admin`, `reviewer`, `member`).
@@ -749,7 +652,7 @@ If analysis failed:
 
 ---
 
-### 12.8 `GET /api/v1/checks`
+### 12.5 `GET /api/v1/checks`
 
 **Purpose:** List checks for the current workspace (inbox view).  
 **Auth required?** Yes.
@@ -804,7 +707,7 @@ If analysis failed:
 
 ---
 
-### 12.9 `GET /api/v1/checks/{check_id}`
+### 12.6 `GET /api/v1/checks/{check_id}`
 
 **Purpose:** Full check detail including signals and source file info.  
 **Auth required?** Yes.
@@ -878,13 +781,13 @@ When a source file exists:
 - `403 Forbidden` — Check belongs to a different workspace.
 - `404 Not Found` — Check ID does not exist.
 
-**Notes for v1 simplification:** Signals are eagerly loaded (JOIN) — no separate endpoint. `source_file` object is included inline; the actual download URL is obtained via endpoint 12.11. `raw_input_text` IS included in detail (but NOT in list).
+**Notes for v1 simplification:** Signals are eagerly loaded (JOIN) — no separate endpoint. `source_file` object is included inline; the actual download URL is obtained via endpoint 12.8. `raw_input_text` IS included in detail (but NOT in list).
 
 ---
 
-### 12.10 `POST /api/v1/checks/{check_id}/decision`
+### 12.7 `POST /api/v1/checks/{check_id}/decision`
 
-**Purpose:** Log or update a decision on a check.  
+**Purpose:** Log a decision on a check. Decisions are **immutable** — this endpoint can only be called once per check.  
 **Auth required?** Yes. **Role required:** `admin` or `reviewer` for `approved`. Any role for `held` or `rejected`.
 
 **Request body:**
@@ -916,16 +819,16 @@ When a source file exists:
 **Success status code:** `200 OK`  
 **Error status codes:**
 - `401 Unauthorized`
-- `403 Forbidden` — Member trying to `approved`, or check belongs to different workspace.
+- `403 Forbidden` — Member attempting `approved`, or check belongs to a different workspace.
 - `404 Not Found` — Check does not exist.
-- `409 Conflict` — Check `status` is not `analyzed` (cannot decide on `processing` or `error` checks).
+- `409 Conflict` — Check `status` is not `analyzed` (cannot decide on `processing` or `error` checks). Also returned if a decision already exists on this check (`already_decided`).
 - `422 Unprocessable Entity` — Invalid decision value or note too long.
 
-**Notes for v1 simplification:** This endpoint REPLACES any existing decision. It does not append. The previous decision is overwritten in the `check_requests` row. Decision audit logging is deferred.
+**Notes for v1 simplification:** Decisions are **immutable**. Once submitted they cannot be changed. This endpoint returns 409 `already_decided` if a decision is already recorded. Because decisions are immutable, there is no decision audit log table in v1. If a team member needs to change a decision, they submit a new check.
 
 ---
 
-### 12.11 `GET /api/v1/checks/{check_id}/file`
+### 12.8 `GET /api/v1/checks/{check_id}/file`
 
 **Purpose:** Get a time-limited signed URL to download the source PDF.  
 **Auth required?** Yes.
@@ -963,10 +866,8 @@ When a source file exists:
 
 | Endpoint | Field | Rule |
 |----------|-------|------|
-| POST /workspaces | `name` | Required. 1–100 chars after trim. |
 | POST /members | `email` | Required. Valid email format (RFC 5322 basic). |
 | POST /members | `role` | Required. One of: `reviewer`, `member`. |
-| PATCH /members | `role` | Required. One of: `reviewer`, `member`. |
 | POST /checks | `input_type` | Required. One of: `paste_text`, `pdf`. |
 | POST /checks | `raw_text` | Required if `input_type=paste_text`. 1–50,000 chars. |
 | POST /checks | `file` | Required if `input_type=pdf`. Must be `application/pdf`. Max 5MB. |
@@ -1022,8 +923,9 @@ Every error response uses this structure:
 | 403 | `email_not_verified` | Email verification not completed |
 | 404 | `not_found` | Resource does not exist or is in a different workspace |
 | 404 | `user_not_found` | Target email has no Supabase Auth account (member addition) |
-| 409 | `conflict` | Duplicate (user already member, user already has workspace) |
+| 409 | `conflict` | Duplicate (user already a member of this workspace) |
 | 409 | `check_not_analyzed` | Trying to decide on a check that isn't in `analyzed` status |
+| 409 | `already_decided` | A decision already exists on this check. Decisions are immutable. |
 | 413 | `payload_too_large` | File upload exceeds 5MB |
 | 415 | `unsupported_media_type` | Uploaded file is not PDF |
 | 422 | `validation_error` | Request body fails validation |
@@ -1037,45 +939,38 @@ Every error response uses this structure:
 
 Build sequentially. Each step produces a testable, deployable increment.
 
-### Phase 1: Auth + Workspace Foundation
+### Phase 1: Auth + Context + Core Check Flow
 
 | Step | What | Notes |
 |------|------|-------|
-| 1.1 | Set up Supabase project (Postgres + Auth + Storage) | Create project, get service role key, configure email verification |
-| 1.2 | Create database tables: `profiles`, `workspaces`, `workspace_members` | Apply SQL via Supabase dashboard or migration file |
+| 1.1 | Set up Supabase project (Postgres + Auth + Storage) | Create project, get service role key, configure email verification, create private `check-files` bucket |
+| 1.2 | Create database tables: `profiles`, `workspaces`, `workspace_members` | Apply SQL via Supabase dashboard |
 | 1.3 | FastAPI project scaffold: JWT verification middleware | Verify Supabase JWT on every request, extract user_id |
-| 1.4 | `GET /api/v1/me` | Read profile + workspace membership. First working endpoint. |
-| 1.5 | `POST /api/v1/workspaces` | Create workspace + admin membership in transaction |
-| 1.6 | Member endpoints: list, add, remove, change role | Complete workspace management |
+| 1.4 | `GET /api/v1/me` — with auto-create workspace logic | On first call for a verified user: create workspace + admin membership atomically. Return full user + workspace context. |
+| 1.5 | Create database tables: `check_requests`, `risk_signals`, `source_files` | |
+| 1.6 | `POST /api/v1/checks` — paste_text path only (no AI yet) | Save check_request, return stub verdict to test round-trip |
+| 1.7 | Text extraction + field parsing | Extract vendor_name, bank details. Compute hashes + masks. |
+| 1.8 | Prior-check comparison logic | Query previous checks for same vendor_name, compare hashes, set `bank_details_changed` and `prior_check_id` |
+| 1.9 | OpenAI integration: analysis + verdict + signals | Call OpenAI, parse structured response, insert risk_signals, set verdict |
+| 1.10 | `POST /api/v1/checks` — PDF path | Upload to Supabase Storage, extract text via pdfplumber, then same pipeline |
+| 1.11 | `GET /api/v1/checks` — inbox listing | Paginated list with verdict/status/decision/search filters |
+| 1.12 | `GET /api/v1/checks/{check_id}` — detail | Full detail including signals array and source_file |
+| 1.13 | `GET /api/v1/checks/{check_id}/file` — signed URL | Generate Supabase Storage signed URL |
 
-**Milestone:** Signup → verify email → create workspace → add a teammate → confirm in member list.
+**Milestone:** Signup → verify email → auto-workspace created → submit pasted text or PDF → see AI verdict + signals → browse inbox.
 
-### Phase 2: Check Submission + Analysis
-
-| Step | What | Notes |
-|------|------|-------|
-| 2.1 | Create database tables: `check_requests`, `risk_signals`, `source_files` | |
-| 2.2 | `POST /api/v1/checks` — paste_text path only | Save check_request, skip AI for now, return with status=analyzed and dummy verdict |
-| 2.3 | Text extraction + field parsing | Extract vendor_name, bank details from raw text. Compute hashes + masks. |
-| 2.4 | Prior-check comparison logic | Query previous checks for same vendor_name, compare hashes, set `bank_details_changed` |
-| 2.5 | OpenAI integration: analysis + verdict + signals | Call OpenAI, parse structured response, insert risk_signals, set verdict |
-| 2.6 | `POST /api/v1/checks` — PDF path | Upload to Supabase Storage, extract text via pdfplumber, then same pipeline |
-| 2.7 | `GET /api/v1/checks` — inbox listing with filters | Paginated list with verdict/status/decision/search filters |
-| 2.8 | `GET /api/v1/checks/{check_id}` — detail with signals | Full detail including signals array and source_file |
-| 2.9 | `GET /api/v1/checks/{check_id}/file` — signed URL | Generate Supabase Storage signed URL |
-
-**Milestone:** Submit pasted text → see AI verdict + signals → submit PDF → see results → browse inbox.
-
-### Phase 3: Decisions + Polish
+### Phase 2: Decisions + Team + Polish
 
 | Step | What | Notes |
 |------|------|-------|
-| 3.1 | `POST /api/v1/checks/{check_id}/decision` | With role-based permission enforcement |
-| 3.2 | Decision filtering in inbox | Filter by decision status |
-| 3.3 | Error handling pass | Validate all error codes, edge cases, missing data |
-| 3.4 | Rate limiting (basic) | Per-user request throttle to protect OpenAI budget |
+| 2.1 | `POST /api/v1/checks/{check_id}/decision` | Immutable decision with role-based permission enforcement |
+| 2.2 | Decision filtering in inbox (`?decision=pending`) | Filter by decision status |
+| 2.3 | `GET /api/v1/workspaces/{id}/members` | Read-only member list |
+| 2.4 | `POST /api/v1/workspaces/{id}/members` | Admin adds teammate by email |
+| 2.5 | Error handling pass | Validate all error codes, edge cases, missing extraction data |
+| 2.6 | Rate limiting (basic) | Per-user request throttle to protect OpenAI budget |
 
-**Milestone:** Full v1 backend is functional and API-testable.
+**Milestone:** Full v1 backend is functional and API-testable. Decisions logged. Team access working.
 
 ---
 
@@ -1084,7 +979,10 @@ Build sequentially. Each step produces a testable, deployable increment.
 ### Architecture
 
 - **6 tables** for launch. No more.
-- **11 endpoints**. No more.
+- **8 endpoints**. No more.
+- **Workspace auto-created** via `GET /api/v1/me` on first authenticated call — no separate creation endpoint.
+- **Decisions are immutable.** One decision per check, no update path. No decision audit log needed.
+- **Member management (add only)** deferred to Phase 2. PATCH role and DELETE member handled via Supabase dashboard for the beta period.
 - **Synchronous processing** for check submission. No background workers, no queues, no polling.
 - **Application-level authorization** in FastAPI. No Postgres RLS in v1 (add later as hardening).
 - **Single workspace per user** enforced at application level.
@@ -1095,7 +993,8 @@ Build sequentially. Each step produces a testable, deployable increment.
 
 | Choice | Alternatives Considered | Why This One |
 |--------|------------------------|-------------|
-| Decision fields on check_requests (not separate table) | Separate decisions table | One query gets the full check state. No joins. Audit log deferred. |
+| Decision fields on check_requests, immutable once set | Mutable decision with audit log | One query gets the full check state. Immutability removes the audit table entirely. If a decision must change, a new check is submitted. |
+| Auto-create workspace on first `GET /me` | POST /workspaces onboarding step | Removes an API call from the onboarding flow. Workspace is always ready when the user lands in the app. |
 | risk_signals as separate rows (not JSON on check_requests) | JSONB column | Signals need structured filtering, counting, and display. Separate rows enable this without parsing JSON. |
 | JSONB metadata on risk_signals | Additional typed columns per signal type | Signal types will evolve. JSONB avoids migrations for new signal shapes. Only one JSONB column in the entire schema. |
 | Synchronous POST /checks | Async with polling / webhooks / realtime | 3 users, no concurrency pressure. Sync is dramatically simpler to build, test, and debug. |
@@ -1105,10 +1004,13 @@ Build sequentially. Each step produces a testable, deployable increment.
 
 ### What NOT to build
 
-- Do not build a vendors CRUD. Derive vendor lists from check history.
+- Do not build `POST /workspaces`. Workspace is auto-created.
+- Do not build `DELETE /members` or `PATCH /members` endpoints. Use Supabase dashboard for the beta.
+- Do not build a decision update/override path. Decisions are immutable. User submits a new check.
+- Do not build a workspace_invites table or pending-invite flow. Invitee must sign up first.
+- Do not build a vendors CRUD. Derive vendor context from check history.
 - Do not build notifications. Users refresh the inbox.
 - Do not build analytics. Postgres queries cover beta needs.
-- Do not build rate limiting beyond basic per-user throttle.
 - Do not build retry logic for failed checks. User resubmits.
 - Do not build file versioning. One file per check, immutable.
 - Do not build soft deletes. Hard delete is fine for beta.
