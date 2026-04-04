@@ -51,9 +51,12 @@ class AnalysisResult:
 # ---------------------------------------------------------------------------
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-_PHONE_RE = re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
-_ACCOUNT_RE = re.compile(r"(?:account|acct)[#:\s]*(\d[\d\s-]{4,})", re.IGNORECASE)
-_ROUTING_RE = re.compile(r"(?:routing|aba|aba/routing)[#:\s]*(\d{9})", re.IGNORECASE)
+_PHONE_RE = re.compile(
+    r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
+_ACCOUNT_RE = re.compile(
+    r"(?:account|acct)[#:\s]*(\d[\d\s-]{4,})", re.IGNORECASE)
+_ROUTING_RE = re.compile(
+    r"(?:routing|aba|aba/routing)[#:\s]*(\d{9})", re.IGNORECASE)
 
 _BANK_NAMES = [
     "chase", "bank of america", "wells fargo", "citibank", "citi",
@@ -107,7 +110,8 @@ def _extract_fields(text: str) -> ExtractedFields:
     # Bank account
     acct_match = _ACCOUNT_RE.search(text)
     if acct_match:
-        fields.bank_account_raw = re.sub(r"\s", "", acct_match.group(1)).strip("-")
+        fields.bank_account_raw = re.sub(
+            r"\s", "", acct_match.group(1)).strip("-")
 
     # Routing number
     routing_match = _ROUTING_RE.search(text)
@@ -122,7 +126,8 @@ def _extract_fields(text: str) -> ExtractedFields:
             break
 
     # Vendor name — use the first line as a heuristic (common in pasted vendor letters)
-    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    lines = [line.strip()
+             for line in text.strip().splitlines() if line.strip()]
     if lines:
         first_line = lines[0]
         # If the first line looks like a name/company (short, no email/URL)
@@ -169,7 +174,8 @@ def _detect_signals(text: str, fields: ExtractedFields) -> list[Signal]:
         email_domain = fields.vendor_contact_email.split("@")[-1].lower()
         vendor_lower = fields.vendor_name.lower()
         # Check if the vendor name words appear in the email domain
-        free_domains = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com"}
+        free_domains = {"gmail.com", "yahoo.com",
+                        "hotmail.com", "outlook.com", "aol.com"}
         if email_domain in free_domains:
             signals.append(Signal(
                 signal_type="domain_mismatch",
@@ -241,10 +247,14 @@ def analyze_paste_text(text: str) -> AnalysisResult:
         vendor_contact_email=fields.vendor_contact_email,
         vendor_contact_phone=fields.vendor_contact_phone,
         bank_name=fields.bank_name,
-        bank_account_hash=_hash_value(fields.bank_account_raw) if fields.bank_account_raw else None,
-        bank_routing_hash=_hash_value(fields.bank_routing_raw) if fields.bank_routing_raw else None,
-        bank_account_masked=_mask_value(fields.bank_account_raw) if fields.bank_account_raw else None,
-        bank_routing_masked=_mask_value(fields.bank_routing_raw) if fields.bank_routing_raw else None,
+        bank_account_hash=_hash_value(
+            fields.bank_account_raw) if fields.bank_account_raw else None,
+        bank_routing_hash=_hash_value(
+            fields.bank_routing_raw) if fields.bank_routing_raw else None,
+        bank_account_masked=_mask_value(
+            fields.bank_account_raw) if fields.bank_account_raw else None,
+        bank_routing_masked=_mask_value(
+            fields.bank_routing_raw) if fields.bank_routing_raw else None,
         verdict=verdict,
         verdict_explanation=explanation,
         recommended_action=action,

@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from supabase import create_client
 
 from app.config import get_settings
 from app.errors import unhandled_exception_handler
@@ -11,15 +10,13 @@ from app.routes import checks, me
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
-    app.state.supabase = create_client(
-        settings.supabase_url, settings.supabase_service_role_key)
+    # DB engine is lazily initialized on first request via get_db()
     yield
 
 
 app = FastAPI(
     title="VendorCheck API",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 

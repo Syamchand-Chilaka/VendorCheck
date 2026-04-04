@@ -8,12 +8,12 @@ class UserInfo(BaseModel):
     email_verified: bool
 
 
-class WorkspaceInfo(BaseModel):
-    id: str
-    name: str
+class MembershipInfo(BaseModel):
+    tenant_id: str
+    tenant_name: str
     role: str
 
 
 class MeResponse(BaseModel):
     user: UserInfo
-    workspace: WorkspaceInfo
+    memberships: list[MembershipInfo]

@@ -1,51 +1,45 @@
-"""Service layer for creating and persisting checks."""
+"""Service layer for creating and persisting checks (RDS + SQLAlchemy)."""
 
 from __future__ import annotations
 
-from supabase import Client
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import AuthContext
+from app.models.orm import CheckRequest, RiskSignal, User
 from app.schemas.checks import CreateCheckResponse, SignalResponse, SubmittedBy
 from app.services.analysis import AnalysisResult, analyze_paste_text
 
 
-def _find_prior_check(
-    supabase: Client,
-    workspace_id: str,
+async def _find_prior_check(
+    db: AsyncSession,
+    tenant_id: str,
     vendor_name: str | None,
-) -> dict | None:
-    """Find the most recent analyzed check for the same vendor in this workspace."""
+) -> CheckRequest | None:
     if not vendor_name:
         return None
-
-    result = (
-        supabase.table("check_requests")
-        .select("id, bank_account_hash, bank_routing_hash")
-        .eq("workspace_id", workspace_id)
-        .eq("vendor_name", vendor_name)
-        .eq("status", "analyzed")
-        .order("created_at", desc=True)
+    result = await db.execute(
+        select(CheckRequest)
+        .where(CheckRequest.tenant_id == tenant_id)
+        .where(CheckRequest.vendor_name == vendor_name)
+        .where(CheckRequest.status == "analyzed")
+        .order_by(CheckRequest.created_at.desc())
         .limit(1)
-        .execute()
     )
-    return result.data[0] if result.data else None
+    return result.scalar_one_or_none()
 
 
 def _check_bank_details_changed(
-    analysis: AnalysisResult, prior: dict | None
+    analysis: AnalysisResult, prior: CheckRequest | None
 ) -> bool | None:
-    """Compare bank hashes against prior check. Returns None if no prior check."""
     if prior is None:
         return None
-
-    prior_acct = prior.get("bank_account_hash")
-    prior_routing = prior.get("bank_routing_hash")
-
+    prior_acct = prior.bank_account_hash
+    prior_routing = prior.bank_routing_hash
     if not prior_acct and not prior_routing:
         return None
     if not analysis.bank_account_hash and not analysis.bank_routing_hash:
         return None
-
     acct_changed = (
         prior_acct and analysis.bank_account_hash
         and prior_acct != analysis.bank_account_hash
@@ -54,14 +48,13 @@ def _check_bank_details_changed(
         prior_routing and analysis.bank_routing_hash
         and prior_routing != analysis.bank_routing_hash
     )
-
     return bool(acct_changed or routing_changed)
 
 
-def create_paste_text_check(
+async def create_paste_text_check(
     raw_text: str,
     auth: AuthContext,
-    supabase: Client,
+    db: AsyncSession,
 ) -> CreateCheckResponse:
     """Full flow: analyze text → find prior → persist check + signals → return response."""
 
@@ -69,84 +62,81 @@ def create_paste_text_check(
     analysis = analyze_paste_text(raw_text)
 
     # 2. Prior-check comparison
-    prior = _find_prior_check(supabase, auth.workspace_id, analysis.vendor_name)
-    prior_check_id = prior["id"] if prior else None
+    prior = await _find_prior_check(db, auth.tenant_id, analysis.vendor_name)
+    prior_check_id = prior.id if prior else None
     bank_details_changed = _check_bank_details_changed(analysis, prior)
 
-    # 3. Get display name for submitted_by
-    profile_result = (
-        supabase.table("profiles")
-        .select("display_name")
-        .eq("id", auth.user_id)
-        .limit(1)
-        .execute()
-    )
-    display_name = profile_result.data[0]["display_name"] if profile_result.data else "User"
+    # 3. Get display name
+    result = await db.execute(select(User).where(User.id == auth.user_id))
+    user = result.scalar_one_or_none()
+    display_name = user.display_name if user else "User"
 
     # 4. Insert check_requests row
-    check_row = {
-        "workspace_id": auth.workspace_id,
-        "submitted_by": auth.user_id,
-        "input_type": "paste_text",
-        "raw_input_text": raw_text,
-        "vendor_name": analysis.vendor_name,
-        "vendor_contact_email": analysis.vendor_contact_email,
-        "vendor_contact_phone": analysis.vendor_contact_phone,
-        "bank_name": analysis.bank_name,
-        "bank_account_hash": analysis.bank_account_hash,
-        "bank_routing_hash": analysis.bank_routing_hash,
-        "bank_account_masked": analysis.bank_account_masked,
-        "bank_routing_masked": analysis.bank_routing_masked,
-        "status": "analyzed",
-        "verdict": analysis.verdict,
-        "verdict_explanation": analysis.verdict_explanation,
-        "recommended_action": analysis.recommended_action,
-        "risk_score": analysis.risk_score,
-        "prior_check_id": prior_check_id,
-        "bank_details_changed": bank_details_changed,
-    }
+    check = CheckRequest(
+        tenant_id=auth.tenant_id,
+        submitted_by=auth.user_id,
+        input_type="paste_text",
+        raw_input_text=raw_text,
+        vendor_name=analysis.vendor_name,
+        vendor_contact_email=analysis.vendor_contact_email,
+        vendor_contact_phone=analysis.vendor_contact_phone,
+        bank_name=analysis.bank_name,
+        bank_account_hash=analysis.bank_account_hash,
+        bank_routing_hash=analysis.bank_routing_hash,
+        bank_account_masked=analysis.bank_account_masked,
+        bank_routing_masked=analysis.bank_routing_masked,
+        status="analyzed",
+        verdict=analysis.verdict,
+        verdict_explanation=analysis.verdict_explanation,
+        recommended_action=analysis.recommended_action,
+        risk_score=analysis.risk_score,
+        prior_check_id=prior_check_id,
+        bank_details_changed=bank_details_changed,
+    )
+    db.add(check)
+    await db.flush()
 
-    insert_result = supabase.table("check_requests").insert(check_row).execute()
-    check = insert_result.data[0]
-
-    # 5. Insert risk_signals rows
+    # 5. Insert risk_signals
     signal_responses: list[SignalResponse] = []
     for sig in analysis.signals:
-        sig_row = {
-            "check_request_id": check["id"],
-            "signal_type": sig.signal_type,
-            "severity": sig.severity,
-            "title": sig.title,
-            "description": sig.description,
-        }
-        sig_result = supabase.table("risk_signals").insert(sig_row).execute()
-        inserted = sig_result.data[0]
+        rs = RiskSignal(
+            tenant_id=auth.tenant_id,
+            check_request_id=check.id,
+            signal_type=sig.signal_type,
+            severity=sig.severity,
+            title=sig.title,
+            description=sig.description,
+        )
+        db.add(rs)
+        await db.flush()
         signal_responses.append(SignalResponse(
-            id=inserted["id"],
-            signal_type=inserted["signal_type"],
-            severity=inserted["severity"],
-            title=inserted["title"],
-            description=inserted["description"],
+            id=rs.id,
+            signal_type=rs.signal_type,
+            severity=rs.severity,
+            title=rs.title,
+            description=rs.description,
         ))
+
+    await db.commit()
 
     # 6. Build response
     return CreateCheckResponse(
-        id=check["id"],
-        status=check["status"],
-        input_type=check["input_type"],
-        vendor_name=check.get("vendor_name"),
-        vendor_contact_email=check.get("vendor_contact_email"),
-        bank_name=check.get("bank_name"),
-        bank_account_masked=check.get("bank_account_masked"),
-        bank_routing_masked=check.get("bank_routing_masked"),
-        bank_details_changed=check.get("bank_details_changed"),
-        verdict=check.get("verdict"),
-        verdict_explanation=check.get("verdict_explanation"),
-        recommended_action=check.get("recommended_action"),
-        risk_score=check.get("risk_score"),
+        id=check.id,
+        status=check.status,
+        input_type=check.input_type,
+        vendor_name=check.vendor_name,
+        vendor_contact_email=check.vendor_contact_email,
+        bank_name=check.bank_name,
+        bank_account_masked=check.bank_account_masked,
+        bank_routing_masked=check.bank_routing_masked,
+        bank_details_changed=check.bank_details_changed,
+        verdict=check.verdict,
+        verdict_explanation=check.verdict_explanation,
+        recommended_action=check.recommended_action,
+        risk_score=check.risk_score,
         signals=signal_responses,
-        prior_check_id=check.get("prior_check_id"),
+        prior_check_id=check.prior_check_id,
         decision=None,
         submitted_by=SubmittedBy(id=auth.user_id, display_name=display_name),
-        created_at=check["created_at"],
+        created_at=check.created_at,
     )

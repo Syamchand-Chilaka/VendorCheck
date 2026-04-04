@@ -1,0 +1,9 @@
+# Dev environment example variables
+# Copy to dev.tfvars and fill in values:
+#   cp dev.tfvars.example dev.tfvars
+
+aws_region   = "us-east-1"
+project      = "vendorcheck"
+environment  = "dev"
+rds_password = "CHANGE_ME_strong_password_here"
+alert_email  = ""   # Optional: your email for SNS alert testing
