@@ -6,13 +6,14 @@ from supabase import create_client
 
 from app.config import get_settings
 from app.errors import unhandled_exception_handler
-from app.routes import me
+from app.routes import checks, me
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    app.state.supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    app.state.supabase = create_client(
+        settings.supabase_url, settings.supabase_service_role_key)
     yield
 
 
@@ -37,6 +38,7 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 # Routes
 app.include_router(me.router, prefix="/api/v1")
+app.include_router(checks.router, prefix="/api/v1")
 
 
 @app.get("/health")

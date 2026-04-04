@@ -11,11 +11,13 @@ def get_or_create_workspace_context(user_id: str, supabase: Client) -> MeRespons
     try:
         auth_response = supabase.auth.admin.get_user_by_id(user_id)
     except Exception:
-        raise HTTPException(status_code=401, detail="User not found in auth system")
+        raise HTTPException(
+            status_code=401, detail="User not found in auth system")
 
     user = auth_response.user
     if not user:
-        raise HTTPException(status_code=401, detail="User not found in auth system")
+        raise HTTPException(
+            status_code=401, detail="User not found in auth system")
 
     email = user.email or ""
     email_verified = user.email_confirmed_at is not None

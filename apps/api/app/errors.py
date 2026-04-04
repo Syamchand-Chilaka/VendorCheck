@@ -8,5 +8,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"error": "internal_error", "detail": "An unexpected error occurred"},
+        content={"error": "internal_error",
+                 "detail": "An unexpected error occurred"},
     )

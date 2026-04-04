@@ -11,7 +11,8 @@ def verify_token(
     """Verify Supabase JWT and return user_id (sub claim)."""
     auth_header = request.headers.get("authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+        raise HTTPException(
+            status_code=401, detail="Missing or invalid authorization header")
 
     token = auth_header.removeprefix("Bearer ")
 
@@ -29,6 +30,7 @@ def verify_token(
 
     user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token: missing sub claim")
+        raise HTTPException(
+            status_code=401, detail="Invalid token: missing sub claim")
 
     return user_id
