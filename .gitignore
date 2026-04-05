@@ -35,7 +35,6 @@ crash.log
 
 # Lambda build artifacts
 *.zip
-!infra/terraform/modules/lambda/placeholder.zip
 
 # Data (untracked datasets)
 data1/

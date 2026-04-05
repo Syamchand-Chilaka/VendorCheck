@@ -34,16 +34,21 @@ variable "lambda_role_arn" {
   description = "IAM role ARN for the Lambda function"
 }
 
-# Placeholder deployment package — replace with real build artifact
-resource "local_file" "placeholder_zip" {
-  content  = "placeholder"
-  filename = "${path.module}/placeholder.zip"
-}
-
 data "archive_file" "handler" {
   type        = "zip"
   source_dir  = "${path.module}/src"
   output_path = "${path.module}/handler.zip"
+}
+
+# Explicit log group with retention — avoids unbounded CloudWatch costs
+resource "aws_cloudwatch_log_group" "lambda" {
+  name              = "/aws/lambda/${var.project}-doc-upload-handler-${var.environment}"
+  retention_in_days = 30
+
+  tags = {
+    Project     = var.project
+    Environment = var.environment
+  }
 }
 
 resource "aws_lambda_function" "document_upload_handler" {
@@ -59,6 +64,7 @@ resource "aws_lambda_function" "document_upload_handler" {
 
   environment {
     variables = {
+      S3_DOCUMENTS_BUCKET        = var.s3_bucket_name
       DATABASE_URL               = var.rds_database_url
       STATE_MACHINE_ARN          = var.step_functions_arn
       ENVIRONMENT                = var.environment
@@ -69,6 +75,8 @@ resource "aws_lambda_function" "document_upload_handler" {
     Project     = var.project
     Environment = var.environment
   }
+
+  depends_on = [aws_cloudwatch_log_group.lambda]
 }
 
 # Allow S3 to invoke this Lambda

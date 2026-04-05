@@ -13,12 +13,20 @@ variable "sns_topic_arn" {
   description = "SNS topic ARN for alert publishing"
 }
 
+# IMPORTANT: This state machine definition uses placeholder references
+# (e.g. "#{OcrFunctionArn}") for Lambda functions that don't exist yet.
+# The state machine will be created by Terraform, but executions will FAIL
+# until you replace these placeholders with real Lambda function ARNs.
+#
+# When you create step-specific Lambda functions, replace the placeholder
+# FunctionName values and re-apply.
+
 resource "aws_sfn_state_machine" "document_pipeline" {
   name     = "${var.project}-doc-pipeline-${var.environment}"
   role_arn = var.sfn_role_arn
 
   definition = jsonencode({
-    Comment = "VendorCheck document processing pipeline"
+    Comment = "VendorCheck document processing pipeline — placeholder Lambda ARNs, see module README"
     StartAt = "RunOCR"
     States = {
       RunOCR = {
