@@ -273,10 +273,12 @@ Execute these in order via the Supabase dashboard:
 
 ### Backend (`apps/api/.env`)
 
+Never commit a real `SUPABASE_SERVICE_ROLE_KEY`. If one is ever pushed, rotate it immediately in Supabase and purge it from git history.
+
 ```
 SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-SUPABASE_JWT_SECRET=super-secret-jwt-token-...
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key-set-locally-only>
+SUPABASE_JWT_SECRET=<jwt-secret-set-locally-only>
 OPENAI_API_KEY=sk-...
 ALLOWED_ORIGINS=http://localhost:3000
 APP_ENV=development
@@ -295,7 +297,7 @@ APP_ENV=development
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
