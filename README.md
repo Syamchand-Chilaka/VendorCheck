@@ -31,8 +31,13 @@ VendorCheck/
 │   │   │   ├── schemas/  #     Pydantic request/response models
 │   │   │   └── services/ #     Business logic layer
 │   │   └── tests/        #   Backend tests
-│   ├── web/              # Next.js frontend (landing page + app UI)
-│   │   └── app/          #   Next.js app directory
+│   ├── web/              # Next.js frontend
+│   │   ├── app/          #   Next.js app directory
+│   │   │   ├── (auth)/   #     Login, signup, verify pages
+│   │   │   └── dashboard/#     Authenticated dashboard pages
+│   │   ├── components/   #   Reusable React components
+│   │   ├── context/      #   Auth context provider
+│   │   └── lib/          #   API client, auth helpers, types
 │   └── workers/          # Lambda handlers for event-driven processing
 ├── db/
 │   ├── migrations/       # PostgreSQL schema migrations
@@ -74,9 +79,14 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 cd apps/web
+cp .env.example .env.local   # Then fill in Cognito pool ID and client ID
 npm install
 npm run dev
 ```
+
+### Dashboard
+
+After starting both servers, open `http://localhost:3000`. The landing page is at `/`, and the authenticated dashboard is at `/dashboard/inbox`. Sign up via `/signup`, verify your email at `/verify`, then log in at `/login`.
 
 ### Run Backend Tests
 
