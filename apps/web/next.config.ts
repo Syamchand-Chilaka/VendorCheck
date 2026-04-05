@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "export",
+  // Static export only for GitHub Pages landing-page build
+  ...(process.env.GITHUB_PAGES ? { output: "export" as const } : {}),
   basePath: process.env.GITHUB_PAGES ? "/VendorCheck" : "",
   images: {
     unoptimized: true,

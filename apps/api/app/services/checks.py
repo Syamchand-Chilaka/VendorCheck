@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -183,7 +183,8 @@ async def list_checks(auth: AuthContext, db: AsyncSession) -> CheckListResponse:
 
 async def get_check_detail(check_id: str, auth: AuthContext, db: AsyncSession) -> CheckDetailResponse:
     check_result = await db.execute(
-        select(CheckRequest).where(CheckRequest.id == check_id).where(CheckRequest.tenant_id == auth.tenant_id)
+        select(CheckRequest).where(CheckRequest.id == check_id).where(
+            CheckRequest.tenant_id == auth.tenant_id)
     )
     check = check_result.scalar_one_or_none()
     if check is None:
@@ -243,7 +244,8 @@ async def decide_check(
     db: AsyncSession,
 ) -> CheckDecisionResponse:
     if auth.role not in DECISION_ROLES:
-        raise HTTPException(status_code=403, detail="Insufficient role for decision action")
+        raise HTTPException(
+            status_code=403, detail="Insufficient role for decision action")
     if payload.decision not in {"approved", "held", "rejected"}:
         raise HTTPException(status_code=422, detail="Invalid decision")
 
@@ -256,12 +258,13 @@ async def decide_check(
     if check is None:
         raise HTTPException(status_code=404, detail="Check not found")
     if check.decision is not None:
-        raise HTTPException(status_code=409, detail="Decision already recorded")
+        raise HTTPException(
+            status_code=409, detail="Decision already recorded")
 
     check.decision = payload.decision
     check.decision_note = payload.note
     check.decided_by = auth.user_id
-    check.decided_at = datetime.utcnow()
+    check.decided_at = datetime.now(timezone.utc)
 
     await log_audit_event(
         db,

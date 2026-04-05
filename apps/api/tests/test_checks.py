@@ -104,7 +104,8 @@ class TestCheckCreation:
     async def test_list_and_detail(self, client: AsyncClient):
         create_resp = await client.post(
             "/api/v1/checks",
-            data={"input_type": "paste_text", "raw_text": "Test Vendor\nSome details here."},
+            data={"input_type": "paste_text",
+                  "raw_text": "Test Vendor\nSome details here."},
             headers={"X-Tenant-Id": "test-tenant-id"},
         )
         check_id = create_resp.json()["id"]
@@ -127,7 +128,8 @@ class TestCheckCreation:
     async def test_decision_recorded_once(self, client: AsyncClient):
         create_resp = await client.post(
             "/api/v1/checks",
-            data={"input_type": "paste_text", "raw_text": "Test Vendor\nSome details here."},
+            data={"input_type": "paste_text",
+                  "raw_text": "Test Vendor\nSome details here."},
             headers={"X-Tenant-Id": "test-tenant-id"},
         )
         check_id = create_resp.json()["id"]

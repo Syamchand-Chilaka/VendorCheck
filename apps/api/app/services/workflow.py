@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import boto3
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +51,8 @@ async def _run_local_document_pipeline(
             document_version_id=version.id,
             tenant_id=tenant_id,
             artifact_type="extracted_text",
-            content_text=f"{vendor.name} {document.title or ''} {version.original_filename or ''}".strip(),
+            content_text=f"{vendor.name} {document.title or ''} {version.original_filename or ''}".strip(
+            ),
         )
     )
     db.add(
@@ -128,7 +129,7 @@ async def _run_local_document_pipeline(
         )
 
     workflow_run.status = "succeeded"
-    workflow_run.completed_at = datetime.utcnow()
+    workflow_run.completed_at = datetime.now(timezone.utc)
     await log_audit_event(
         db,
         tenant_id=tenant_id,

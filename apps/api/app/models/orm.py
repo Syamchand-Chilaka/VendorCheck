@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 from sqlalchemy import (
     Boolean,
@@ -42,9 +46,9 @@ class Tenant(Base):
     slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     created_by: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     memberships: Mapped[list["Membership"]
                         ] = relationship(back_populates="tenant")
@@ -62,9 +66,9 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     memberships: Mapped[list["Membership"]
                         ] = relationship(back_populates="user")
@@ -82,7 +86,7 @@ class Membership(Base):
         "users.id", ondelete="CASCADE"), nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=False, default="member")
     joined_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="memberships")
     user: Mapped["User"] = relationship(back_populates="memberships")
@@ -101,9 +105,9 @@ class Vendor(Base):
     metadata_: Mapped[dict | None] = mapped_column(
         "metadata", Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="vendors")
     documents: Mapped[list["Document"]] = relationship(back_populates="vendor")
@@ -127,9 +131,9 @@ class Document(Base):
     created_by: Mapped[str] = mapped_column(
         Text, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     vendor: Mapped["Vendor"] = relationship(back_populates="documents")
     versions: Mapped[list["DocumentVersion"]
@@ -158,9 +162,9 @@ class DocumentVersion(Base):
     created_by: Mapped[str] = mapped_column(
         Text, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     document: Mapped["Document"] = relationship(back_populates="versions")
 
@@ -179,7 +183,7 @@ class DocumentArtifact(Base):
     s3_key: Mapped[str | None] = mapped_column(Text)
     content_text: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
 
 class ExtractedField(Base):
@@ -197,7 +201,7 @@ class ExtractedField(Base):
     field_value_masked: Mapped[str | None] = mapped_column(Text)
     confidence: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
 
 class ValidationResult(Base):
@@ -217,7 +221,7 @@ class ValidationResult(Base):
     recommended_action: Mapped[str | None] = mapped_column(Text)
     raw_response: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
 
 class CheckRequest(Base):
@@ -258,9 +262,9 @@ class CheckRequest(Base):
         DateTime(timezone=True))
     decision_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     signals: Mapped[list["RiskSignal"]] = relationship(
         back_populates="check_request")
@@ -283,7 +287,7 @@ class RiskSignal(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_: Mapped[str | None] = mapped_column("metadata", Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
     check_request: Mapped["CheckRequest | None"] = relationship(
         back_populates="signals")
@@ -312,9 +316,9 @@ class ReviewTask(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
 class AuditLog(Base):
@@ -332,7 +336,7 @@ class AuditLog(Base):
         Text)  # JSON string; JSONB in Postgres
     ip_address: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
 
 class MetricEvent(Base):
@@ -349,7 +353,7 @@ class MetricEvent(Base):
         Integer)  # using Integer for SQLite compat
     metadata_: Mapped[str | None] = mapped_column("metadata", Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
 
 class Alert(Base):
@@ -365,9 +369,10 @@ class Alert(Base):
     review_task_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("review_tasks.id", ondelete="SET NULL"))
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_read: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
+        DateTime(timezone=True), default=_utcnow)
 
 
 class WorkflowRun(Base):
@@ -380,9 +385,11 @@ class WorkflowRun(Base):
     document_version_id: Mapped[str] = mapped_column(Text, ForeignKey(
         "document_versions.id", ondelete="CASCADE"), nullable=False)
     sfn_execution_arn: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="running")
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="running")
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+        DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
     correlation_id: Mapped[str | None] = mapped_column(Text)

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import AuthContext
-from app.models.orm import ReviewTask
+from app.models.orm import Document, DocumentVersion, ReviewTask
 from app.schemas.reviews import ReviewTaskListResponse, ReviewTaskResponse, ResolveReviewTaskRequest
 from app.services.audit import log_audit_event, record_metric_event
 
@@ -31,7 +31,8 @@ def _to_response(task: ReviewTask) -> ReviewTaskResponse:
 
 def _require_review_role(auth: AuthContext) -> None:
     if auth.role not in REVIEW_ROLES:
-        raise HTTPException(status_code=403, detail="Insufficient role for review action")
+        raise HTTPException(
+            status_code=403, detail="Insufficient role for review action")
 
 
 async def list_review_tasks(auth: AuthContext, db: AsyncSession) -> ReviewTaskListResponse:
@@ -63,7 +64,29 @@ async def resolve_review_task(
     task.status = "resolved"
     task.resolution = payload.resolution.strip()
     task.resolved_by = auth.user_id
-    task.resolved_at = datetime.utcnow()
+    task.resolved_at = datetime.now(timezone.utc)
+
+    # Propagate resolution to the linked document/version
+    new_doc_status = "validated" if payload.resolution.strip() == "approved" else "rejected"
+    if task.document_id:
+        doc_result = await db.execute(
+            select(Document)
+            .where(Document.id == task.document_id)
+            .where(Document.tenant_id == auth.tenant_id)
+        )
+        doc = doc_result.scalar_one_or_none()
+        if doc:
+            doc.status = new_doc_status
+    if task.document_version_id:
+        ver_result = await db.execute(
+            select(DocumentVersion)
+            .where(DocumentVersion.id == task.document_version_id)
+            .where(DocumentVersion.tenant_id == auth.tenant_id)
+        )
+        ver = ver_result.scalar_one_or_none()
+        if ver:
+            ver.status = new_doc_status
+
     await log_audit_event(
         db,
         tenant_id=auth.tenant_id,

@@ -115,7 +115,8 @@ async def initiate_document_upload(
         action="document.upload_initiated",
         entity_type="document",
         entity_id=document.id,
-        details={"document_version_id": version.id, "filename": payload.original_filename},
+        details={"document_version_id": version.id,
+                 "filename": payload.original_filename},
     )
     await record_metric_event(
         db,
@@ -135,7 +136,8 @@ async def initiate_document_upload(
         version_no=version.version_no,
         s3_bucket=version.s3_bucket or "",
         s3_key=version.s3_key or "",
-        upload_url=generate_upload_url(version.s3_bucket or "", version.s3_key or "", payload.mime_type),
+        upload_url=generate_upload_url(
+            version.s3_bucket or "", version.s3_key or "", payload.mime_type),
         status=document.status,
     )
 
@@ -161,7 +163,8 @@ async def complete_document_upload(
     )
     row = result.one_or_none()
     if row is None:
-        raise HTTPException(status_code=404, detail="Document or version not found")
+        raise HTTPException(
+            status_code=404, detail="Document or version not found")
 
     document, vendor, version = row
     document.status = "queued"

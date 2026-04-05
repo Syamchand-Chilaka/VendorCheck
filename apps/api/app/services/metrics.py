@@ -17,15 +17,18 @@ async def _count(db: AsyncSession, statement) -> int:
 async def get_metrics_summary(auth: AuthContext, db: AsyncSession) -> MetricsSummaryResponse:
     total_vendors = await _count(
         db,
-        select(func.count()).select_from(Vendor).where(Vendor.tenant_id == auth.tenant_id),
+        select(func.count()).select_from(Vendor).where(
+            Vendor.tenant_id == auth.tenant_id),
     )
     total_documents = await _count(
         db,
-        select(func.count()).select_from(Document).where(Document.tenant_id == auth.tenant_id),
+        select(func.count()).select_from(Document).where(
+            Document.tenant_id == auth.tenant_id),
     )
     total_checks = await _count(
         db,
-        select(func.count()).select_from(CheckRequest).where(CheckRequest.tenant_id == auth.tenant_id),
+        select(func.count()).select_from(CheckRequest).where(
+            CheckRequest.tenant_id == auth.tenant_id),
     )
     open_review_tasks = await _count(
         db,
