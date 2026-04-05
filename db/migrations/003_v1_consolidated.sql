@@ -5,9 +5,18 @@
 -- Purpose:   Canonical single-file schema for VendorCheck MVP.
 --            Supersedes 001_init.sql + 002_rls.sql (kept for history).
 -- ==========================================================================
--- This migration is idempotent-safe: uses IF NOT EXISTS / CREATE OR REPLACE.
--- Run against a fresh database for clean deployment, or apply selectively
--- to upgrade an existing 001+002 database.
+-- IMPORTANT: This file is designed for FRESH DATABASE SETUP only.
+-- It is NOT a safe incremental migration for an existing 001+002 database.
+--
+-- Reason: Enum types are created via `DO $$ EXCEPTION WHEN duplicate_object`
+-- which silently skips the block if the type already exists. New enum values
+-- (e.g. workflow_status, contributor, viewer) will NOT be applied to an
+-- existing database. To upgrade 001+002 in-place, write a dedicated
+-- 004_role_upgrade.sql that uses ALTER TYPE ... ADD VALUE / RENAME VALUE.
+--
+-- Safe table DDL (IF NOT EXISTS), index DDL (IF NOT EXISTS), ALTER TABLE
+-- deferred FKs, and RLS policy drops+recreates ARE idempotent and safe
+-- to re-run after initial setup.
 -- ==========================================================================
 
 BEGIN;
@@ -20,7 +29,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- Drop-if-exists pattern: safe for fresh DB, skip on upgrade.
 
 DO $$ BEGIN
-  CREATE TYPE user_role AS ENUM ('owner', 'admin', 'reviewer', 'member');
+  CREATE TYPE user_role AS ENUM ('owner', 'admin', 'reviewer', 'contributor', 'viewer');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -135,7 +144,7 @@ CREATE TABLE IF NOT EXISTS memberships (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role        user_role NOT NULL DEFAULT 'member',
+  role        user_role NOT NULL DEFAULT 'viewer',
   joined_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, user_id)
 );
@@ -345,6 +354,7 @@ ALTER TABLE review_tasks
   FOREIGN KEY (check_request_id) REFERENCES check_requests(id) ON DELETE CASCADE;
 
 CREATE INDEX IF NOT EXISTS idx_risk_signals_check_request ON risk_signals (check_request_id);
+CREATE INDEX IF NOT EXISTS idx_review_tasks_check_request ON review_tasks (check_request_id);
 
 -- ── 13. alerts ───────────────────────────────────────────────────────────
 

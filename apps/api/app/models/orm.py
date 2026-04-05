@@ -84,7 +84,7 @@ class Membership(Base):
         "tenants.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[str] = mapped_column(Text, ForeignKey(
         "users.id", ondelete="CASCADE"), nullable=False)
-    role: Mapped[str] = mapped_column(Text, nullable=False, default="member")
+    role: Mapped[str] = mapped_column(Text, nullable=False, default="viewer")
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow)
 

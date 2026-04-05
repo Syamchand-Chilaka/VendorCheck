@@ -12,7 +12,7 @@ This schema targets **Amazon RDS PostgreSQL 16** and is designed for a **pooled 
 | **`tenant_id` on every tenant-owned table** | Enables RLS policies. The `users` table is the exception — users can belong to multiple tenants via `memberships`. |
 | **`TIMESTAMPTZ` everywhere** | Never naive timestamps. All times stored in UTC, displayed in user's local timezone by the app. |
 | **`updated_at` triggers** | Automatic via `trigger_set_updated_at()`. The app doesn't need to set `updated_at` manually. |
-| **Enum types for constrained values** | `verdict_type`, `document_status`, `check_status`, `decision_type`, `signal_severity`, `alert_type`, `workflow_status`, `review_task_status`, `document_type`, `user_role`. Enforced at the DB level. |
+| **Enum types for constrained values** | `verdict_type`, `document_status`, `check_status`, `decision_type`, `signal_severity`, `alert_type`, `workflow_status`, `review_task_status`, `document_type`, `user_role` (`owner` / `admin` / `reviewer` / `contributor` / `viewer`). Enforced at the DB level. |
 | **CHECK constraints** | `risk_score` constrained to 0–100. `confidence` constrained to 0.0–1.0. `file_size_bytes >= 0`. `version_no >= 1`. |
 | **JSONB for flexible payloads** | `metadata` on vendors, `raw_response` on validation_results, `details` on audit_logs, `metadata` on risk_signals and metric_events. |
 | **No soft deletes** | MVP simplicity. Hard deletes with `ON DELETE CASCADE` propagation. Add soft-delete later if compliance requires it. |
@@ -81,7 +81,7 @@ The ORM uses `Text` columns (not `PG_UUID`) so that unit tests can run against S
 
 ## Tables That Should Get RLS First
 
-RLS is already defined for all 15 tenant-owned tables. However, **enforcement priority** for testing and hardening should be:
+RLS is enabled and policies are defined for all 15 tenant-owned tables (`users` is intentionally excluded — cross-tenant lookup is required for the auth flow). The enforcement **testing priority** should be:
 
 ### Tier 1 — Must-verify first (direct user data exposure risk)
 
@@ -116,6 +116,33 @@ RLS is already defined for all 15 tenant-owned tables. However, **enforcement pr
 ---
 
 ## Migration Notes from Supabase-Era Schema
+
+### ⚠️ Fresh-database setup vs. in-place upgrade
+
+`003_v1_consolidated.sql` is the **canonical fresh-database schema** for VendorCheck on AWS RDS.
+It is **NOT a safe general-purpose upgrade migration** for an existing database that has already run 001+002.
+
+The `DO $$ EXCEPTION WHEN duplicate_object THEN NULL` pattern used for enum creation silently skips any block whose type already exists. This means new enum values (`workflow_status`, `contributor`, `viewer`) will **not** be applied on an existing database. Table DDL (`IF NOT EXISTS`) and index DDL are safe to re-run, but enum changes are not.
+
+To upgrade an existing 001+002 database, create a separate migration (e.g. `004_role_upgrade.sql`) using:
+```sql
+-- Add missing workflow_status type
+DO $$ BEGIN
+  CREATE TYPE workflow_status AS ENUM ('running', 'succeeded', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Rename member -> contributor (PostgreSQL 10+)
+ALTER TYPE user_role RENAME VALUE 'member' TO 'contributor';
+
+-- Add viewer value after contributor
+ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'viewer' AFTER 'contributor';
+
+-- Update memberships default
+ALTER TABLE memberships ALTER COLUMN role SET DEFAULT 'viewer';
+```
+
+### Supabase concepts removed
 
 The original VendorCheck design documents referenced Supabase for auth and database hosting. The codebase has been migrated to AWS. Here is what changed and what to watch for:
 
