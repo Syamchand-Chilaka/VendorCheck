@@ -1,14 +1,6 @@
 """SQLAlchemy ORM models matching the multi-tenant RDS schema."""
 
 from __future__ import annotations
-
-import uuid
-from datetime import datetime, timezone
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -21,10 +13,16 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, INET
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from app.db.session import Base
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, INET
+
+import uuid
+from datetime import datetime, timezone
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # Use generic UUID for SQLite compat in tests, PG_UUID in production
@@ -350,7 +348,7 @@ class MetricEvent(Base):
     entity_type: Mapped[str | None] = mapped_column(Text)
     entity_id: Mapped[str | None] = mapped_column(Text)
     value: Mapped[float | None] = mapped_column(
-        Integer)  # using Integer for SQLite compat
+        Float)  # REAL in PostgreSQL; Float maps correctly
     metadata_: Mapped[str | None] = mapped_column("metadata", Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow)

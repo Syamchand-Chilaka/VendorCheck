@@ -21,11 +21,6 @@ class Settings(BaseSettings):
     # Step Functions
     step_functions_state_machine_arn: str = ""
 
-    # Legacy Supabase (kept during migration)
-    supabase_url: str = ""
-    supabase_service_role_key: str = ""
-    supabase_jwt_secret: str = ""
-
     # CORS
     allowed_origins: str = "http://localhost:3000"
 

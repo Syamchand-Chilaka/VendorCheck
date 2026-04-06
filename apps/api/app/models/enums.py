@@ -2,9 +2,11 @@ from enum import StrEnum
 
 
 class Role(StrEnum):
+    OWNER = "owner"
     ADMIN = "admin"
     REVIEWER = "reviewer"
-    MEMBER = "member"
+    CONTRIBUTOR = "contributor"
+    VIEWER = "viewer"
 
 
 class InputType(StrEnum):
